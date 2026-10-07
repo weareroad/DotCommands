@@ -1,5 +1,7 @@
 # ZX Spectrum Next dot commands
 
+### (Some of the code in this repo was generated with the help of AI) 
+
 Small utilities for NextZXOS, beginning with commands that switch the
 NextBASIC editor and command line between its supported text widths:
 
