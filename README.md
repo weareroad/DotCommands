@@ -28,7 +28,7 @@ Successful mode changes are silent. Diagnostic text is printed only when the
 NextZXOS API call or executed BASIC command fails.
 
 The generated files are `build/32`, `build/64`, and `build/85`. Each is
-currently 203 bytes.
+currently 157 bytes.
 
 ## Installation and use
 
@@ -81,8 +81,8 @@ requiring a buffer in main RAM.
 ## Tokenised BASIC command
 
 `IDE_BASIC` accepts a tokenised line terminated by ENTER (`$0D`), not plain
-ASCII source. Token values were confirmed against the NextBASIC tokenizer in
-the local NextBuild installation:
+ASCII source. The token values were confirmed against the NextBASIC tokenizer
+and by testing the resulting commands under NextZXOS:
 
 ```text
 $A3  SPECTRUM
@@ -207,17 +207,21 @@ a generic report. On success it clears carry and returns silently.
 
 ```text
 .
+├── .gitignore
+├── AGENTS.md
 ├── Makefile
 ├── README.md
 ├── build/
 │   ├── 32
 │   ├── 64
 │   └── 85
-└── src/
-    ├── 32.asm
-    ├── 64.asm
-    ├── 85.asm
-    └── columns.asm
+├── src/
+│   ├── 32.asm
+│   ├── 64.asm
+│   ├── 85.asm
+│   └── columns.asm
+└── tools/
+    └── bootstrap-sjasmplus.sh
 ```
 
 `src/columns.asm` contains the implementation. Each wrapper defines its width
@@ -226,22 +230,34 @@ memory management, API calls, and error handling therefore remain identical.
 
 ## Building
 
-The build currently uses `zxbasm.py` bundled with NextBuild:
+The build uses a pinned, project-local copy of SJAsmPlus 1.24.0. It does not
+use or modify a system-wide assembler or a NextBuild installation:
 
 ```sh
 make
 ```
 
-The default path is:
+On the first build, `tools/bootstrap-sjasmplus.sh` downloads the official
+source release, verifies its SHA-256 checksum, and compiles the assembler into:
 
 ```text
-/home/rob/Documents/NextBuildv10/zxbasic1.18.7/zxbasm.py
+.tools/bin/sjasmplus
 ```
 
-Override it without editing the Makefile:
+The downloaded source and binary are ignored by Git. This keeps the toolchain
+isolated from NextBuild and from other development projects. Bootstrapping
+requires `curl`, `tar` with xz support, GNU Make, and a C++17 compiler.
+
+To prepare the toolchain without building the commands, run:
 
 ```sh
-make ZXBASM=/path/to/zxbasm.py
+make toolchain
+```
+
+You can also use a different SJAsmPlus executable without editing the Makefile:
+
+```sh
+make SJASMPLUS=/path/to/sjasmplus
 ```
 
 Remove generated files with:
@@ -250,18 +266,8 @@ Remove generated files with:
 make clean
 ```
 
-### Origin-padding workaround
-
-The bundled assembler emits a raw binary padded with zeroes from address zero
-to `ORG $2000`. NextZXOS instead expects the first file byte to load directly
-at `$2000`.
-
-The Makefile assembles a temporary `.full` file and removes its first 8192
-bytes with `dd`. The final files begin with the instruction assembled at
-`$2000`. Do not install the intermediate padded files.
-
-If the project moves to SJASMPlus or another assembler that emits an unpadded
-image, this workaround should be removed or made conditional.
+SJAsmPlus raw output begins with the first assembled byte, so `ORG $2000` sets
+the runtime address without adding an 8192-byte prefix to the file.
 
 ## Adding another fixed-width variant
 
@@ -271,7 +277,7 @@ Create a wrapper like:
 WIDTH           equ     42
 WIDTH_ASCII_1   equ     '4'
 WIDTH_ASCII_2   equ     '2'
-#include "columns.asm"
+                include "columns.asm"
 ```
 
 Then add its target to the Makefile. NextBASIC must support the requested

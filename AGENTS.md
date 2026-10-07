@@ -60,17 +60,18 @@ Run:
 make clean && make
 ```
 
-The Makefile currently defaults to the assembler installed at:
+The Makefile bootstraps a pinned, project-local SJAsmPlus 1.24.0 toolchain at:
 
-`/home/rob/Documents/NextBuildv10/zxbasic1.18.7/zxbasm.py`
+`.tools/bin/sjasmplus`
 
-Override it with `make ZXBASM=/path/to/zxbasm.py` when needed.
+The bootstrap downloads the official source release, verifies its SHA-256
+checksum, and builds it without Lua support. The `.tools/` directory is ignored
+by Git and must remain independent of NextBuild and other projects. Override it
+with `make SJASMPLUS=/path/to/sjasmplus` when needed.
 
-This assembler pads output from address zero through `ORG $2000`. The Makefile
-intentionally builds a temporary `.full` image and strips its first 8192 bytes.
-The final dot binaries must start with the code loaded at `$2000` and remain
-below the 8 KiB dot-command limit. If switching assemblers, verify whether this
-padding workaround is still needed.
+SJAsmPlus raw output does not pad from address zero through `ORG $2000`. The
+final dot binaries must start with the code loaded at `$2000` and remain below
+the 8 KiB dot-command limit.
 
 ## Verification
 
