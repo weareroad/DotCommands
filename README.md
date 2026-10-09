@@ -29,6 +29,11 @@ All three commands have been built and tested successfully under NextZXOS.
 Successful mode changes are silent. Diagnostic text is printed only when the
 NextZXOS API call or executed BASIC command fails.
 
+The display is not cleared after a mode change. Existing screen memory can
+therefore appear garbled when reinterpreted using the new mode. Two attempts to
+clear it caused command-line regressions and were reverted; see [Failed
+display-clearing experiment](#failed-display-clearing-experiment).
+
 The generated files are `build/32`, `build/64`, and `build/85`. Each is
 currently 157 bytes.
 
@@ -105,6 +110,48 @@ SPECTRUM
 
 The `.64` and `.85` images change only the displayed digits and low byte of the
 hidden integer.
+
+## Failed display-clearing experiment
+
+The mode change can leave a garbled representation of the old screen because
+the same memory is interpreted using a different display geometry. Two ways of
+clearing the new display were tested in October 2026.
+
+The first attempt appended a tokenised `CLS` statement to the command sent to
+`IDE_BASIC`:
+
+```asm
+                defb    0,0,WIDTH,0,0    ; hidden integer
+                defb    ':'              ; statement separator
+                defb    $fb              ; CLS
+                defb    $0d              ; ENTER
+```
+
+This executed `SPECTRUM CHR$ n: CLS` and increased each binary from 157 to 159
+bytes. It cleared the display, but left the NextBASIC command line in an odd
+state: the first attempt to run another dot command was ignored, while later
+attempts worked.
+
+The second attempt restored the original BASIC statement and, after a successful
+`IDE_BASIC` call, sent NextZXOS's documented clear-window control code through
+the dot-command character-output service:
+
+```asm
+                ld      a,14             ; clear window control code
+                rst     $10
+```
+
+This increased each binary from 157 to 160 bytes. Results on real hardware were
+erratic. In particular, `.85` did not always clear, the cursor sometimes did not
+return until another key was pressed, and the first character of the next dot
+command could be swallowed. For example, typing `.64`, ENTER, `.32`, ENTER could
+leave NextBASIC seeing only `32` for the second command.
+
+Both approaches were therefore removed. The reliable mode-only implementation
+is preferred over a cosmetic clear that can disturb command input. A future
+attempt should investigate the active NextBASIC channel, window and editor state
+after `IDE_BASIC`, and must be tested across repeated transitions on real
+hardware before release.
 
 ## Allocating a valid buffer
 
@@ -306,10 +353,11 @@ For future dot commands with different purposes, reuse only relevant pieces:
 5. Test transitions from each width to every other width.
 6. Run each command when already in its requested mode.
 7. Confirm success is silent and leaves a usable prompt and cursor.
-8. Confirm a BASIC program already in memory is undamaged.
-9. Exercise an intentionally invalid development build if error handling
+8. Confirm the first character typed after returning is not swallowed.
+9. Confirm a BASIC program already in memory is undamaged.
+10. Exercise an intentionally invalid development build if error handling
    changes.
-10. Test in CSpect and, when possible, on real Spectrum Next hardware.
+11. Test in CSpect and, when possible, on real Spectrum Next hardware.
 
 ## References
 

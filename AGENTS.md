@@ -36,6 +36,10 @@ NextZXOS. A successful invocation changes mode silently.
 - `IDE_BASIC` requires a tokenised BASIC line. `SPECTRUM` is token `$A3` and
   `CHR$` is token `$C2`; numeric literals include visible digits and the hidden
   five-byte numeric representation.
+- Do not automatically clear the display after changing mode. Both a tokenised
+  `: CLS` suffix and control code 14 through `RST $10` caused intermittent
+  NextBASIC command-line regressions on real hardware. The README records the
+  attempted code and symptoms for future investigation.
 - The command buffer must be in normal RAM. Allocate it with the 48K ROM
   `BC_SPACES` routine (`$0030`) and release it with `RECLAIM_2` (`$19E8`). Do
   not move `SP` below `STKEND`: that caused `M_P3DOS` to reject the call with
@@ -83,7 +87,8 @@ For source changes:
 4. Test commands under NextZXOS, including transitions between every mode and
    invoking a command when already in that mode.
 5. Confirm success is silent, the prompt/cursor remain usable, and a BASIC
-   program already in memory is not damaged.
+   program already in memory is not damaged. Confirm the first character typed
+   after returning is not swallowed.
 6. Report emulator or hardware limitations explicitly.
 
 Keep generated release binaries in `build/`; they are intentionally tracked so
