@@ -1,53 +1,46 @@
 # ZX Spectrum Next dot commands
 
-### (Some of the code in this repo was generated with the help of AI) 
+## SetNN
+sets the display mode to a particular number of characters and performs a CLS
 
-Small utilities for NextZXOS, beginning with commands that switch the
-NextBASIC editor and command line between its supported text widths:
+### Set32
+sets the display to the standard 32 column classic
 
-```text
-.32
-.64
-.85
-```
+### Set64
+sets the display to a more usable 64 column mode
+
+### Set85
+sets the display to a slightly more taxing 85 column mode
+
 
 The commands are shorthand for these working NextBASIC statements:
 
 ```basic
-SPECTRUM CHR$ 32
-SPECTRUM CHR$ 64
-SPECTRUM CHR$ 85
+SPECTRUM CHR$ 32 : CLS  
+SPECTRUM CHR$ 64 : CLS  
+SPECTRUM CHR$ 85 : CLS  
 ```
 
 The project is also intended to become a home for additional dot commands.
-The shared source demonstrates NextZXOS ABI, memory, paging, error-handling,
+The shared source will eventually demonstrate NextZXOS ABI, memory, paging, error-handling,
 and build details that future commands are likely to need.
 
 ## Status
 
 All three commands have been built and tested successfully under NextZXOS.
-Successful mode changes are silent. Diagnostic text is printed only when the
-NextZXOS API call or executed BASIC command fails.
-
-The display is not cleared after a mode change. Existing screen memory can
-therefore appear garbled when reinterpreted using the new mode. Two attempts to
-clear it caused command-line regressions and were reverted; see [Failed
-display-clearing experiment](#failed-display-clearing-experiment).
-
-The generated files are `build/32`, `build/64`, and `build/85`. Each is
-currently 157 bytes.
+They've been built first with ZNC, and then later edited into simple .asm files and built with NextForge.
 
 ## Installation and use
 
-Copy the extensionless files to the dot-command directory on the Next SD card:
+Copy the extensionless files in 'dot' to the dot-command directory on the Next SD card:
 
 ```text
-C:/DOT/32
-C:/DOT/64
-C:/DOT/85
+C:/DOT/Set32
+C:/DOT/Set64
+C:/DOT/Set85
 ```
 
-Then enter `.32`, `.64`, or `.85` at the NextZXOS/NextBASIC command line. The
+Then enter `.SET32`, `.SET64`, or `.SET85` at the NextZXOS/NextBASIC command line. The
 numeric filenames are accepted by NextZXOS, so longer names are unnecessary.
 
 ## Why the commands execute NextBASIC
@@ -110,48 +103,6 @@ SPECTRUM
 
 The `.64` and `.85` images change only the displayed digits and low byte of the
 hidden integer.
-
-## Failed display-clearing experiment
-
-The mode change can leave a garbled representation of the old screen because
-the same memory is interpreted using a different display geometry. Two ways of
-clearing the new display were tested in October 2026.
-
-The first attempt appended a tokenised `CLS` statement to the command sent to
-`IDE_BASIC`:
-
-```asm
-                defb    0,0,WIDTH,0,0    ; hidden integer
-                defb    ':'              ; statement separator
-                defb    $fb              ; CLS
-                defb    $0d              ; ENTER
-```
-
-This executed `SPECTRUM CHR$ n: CLS` and increased each binary from 157 to 159
-bytes. It cleared the display, but left the NextBASIC command line in an odd
-state: the first attempt to run another dot command was ignored, while later
-attempts worked.
-
-The second attempt restored the original BASIC statement and, after a successful
-`IDE_BASIC` call, sent NextZXOS's documented clear-window control code through
-the dot-command character-output service:
-
-```asm
-                ld      a,14             ; clear window control code
-                rst     $10
-```
-
-This increased each binary from 157 to 160 bytes. Results on real hardware were
-erratic. In particular, `.85` did not always clear, the cursor sometimes did not
-return until another key was pressed, and the first character of the next dot
-command could be swallowed. For example, typing `.64`, ENTER, `.32`, ENTER could
-leave NextBASIC seeing only `32` for the second command.
-
-Both approaches were therefore removed. The reliable mode-only implementation
-is preferred over a cosmetic clear that can disturb command input. A future
-attempt should investigate the active NextBASIC channel, window and editor state
-after `IDE_BASIC`, and must be tested across repeated transitions on real
-hardware before release.
 
 ## Allocating a valid buffer
 
@@ -247,124 +198,3 @@ NextZXOS version returns carry clear from this `M_P3DOS` call even when
 therefore treats `ERR_NR`, not the bridge's returned carry flag, as
 authoritative. Initialising it first also prevents a rejected or skipped call
 from being mistaken for success because of a stale `$FF` value.
-
-Diagnostics use the dot-command `RST $10` character-output service. The
-command then exits cleanly so NextZXOS does not replace the useful message with
-a generic report. On success it clears carry and returns silently.
-
-## Source layout
-
-```text
-.
-├── .gitignore
-├── AGENTS.md
-├── Makefile
-├── README.md
-├── build/
-│   ├── 32
-│   ├── 64
-│   └── 85
-├── src/
-│   ├── 32.asm
-│   ├── 64.asm
-│   ├── 85.asm
-│   └── columns.asm
-└── tools/
-    └── bootstrap-sjasmplus.sh
-```
-
-`src/columns.asm` contains the implementation. Each wrapper defines its width
-and two visible ASCII digits before including that shared source. Paging,
-memory management, API calls, and error handling therefore remain identical.
-
-## Building
-
-The build uses a pinned, project-local copy of SJAsmPlus 1.24.0. It does not
-use or modify a system-wide assembler or a NextBuild installation:
-
-```sh
-make
-```
-
-On the first build, `tools/bootstrap-sjasmplus.sh` downloads the official
-source release, verifies its SHA-256 checksum, and compiles the assembler into:
-
-```text
-.tools/bin/sjasmplus
-```
-
-The downloaded source and binary are ignored by Git. This keeps the toolchain
-isolated from NextBuild and from other development projects. Bootstrapping
-requires `curl`, `tar` with xz support, GNU Make, and a C++17 compiler.
-
-To prepare the toolchain without building the commands, run:
-
-```sh
-make toolchain
-```
-
-You can also use a different SJAsmPlus executable without editing the Makefile:
-
-```sh
-make SJASMPLUS=/path/to/sjasmplus
-```
-
-Remove generated files with:
-
-```sh
-make clean
-```
-
-SJAsmPlus raw output begins with the first assembled byte, so `ORG $2000` sets
-the runtime address without adding an 8192-byte prefix to the file.
-
-## Adding another fixed-width variant
-
-Create a wrapper like:
-
-```asm
-WIDTH           equ     42
-WIDTH_ASCII_1   equ     '4'
-WIDTH_ASCII_2   equ     '2'
-                include "columns.asm"
-```
-
-Then add its target to the Makefile. NextBASIC must support the requested
-value; the implementation does not validate it in advance and reports any
-resulting `ERR_NR` failure.
-
-For future dot commands with different purposes, reuse only relevant pieces:
-
-- use `BC_SPACES` when an API needs a temporary main-RAM buffer;
-- reclaim every successful allocation before returning;
-- preserve and restore paging state;
-- obey the wrapped call's RAM configuration;
-- remember that `M_P3DOS` parameters use alternate registers;
-- distinguish API errors from errors reported by the invoked service;
-- keep the image below the 8 KiB basic dot-command limit.
-
-## Verification checklist
-
-1. Run `make clean && make`.
-2. Confirm outputs are comfortably below 8192 bytes.
-3. Confirm width variants differ only in displayed digits and hidden integer
-   unless an implementation change was intended.
-4. Copy extensionless files to `C:/DOT/`.
-5. Test transitions from each width to every other width.
-6. Run each command when already in its requested mode.
-7. Confirm success is silent and leaves a usable prompt and cursor.
-8. Confirm the first character typed after returning is not swallowed.
-9. Confirm a BASIC program already in memory is undamaged.
-10. Exercise an intentionally invalid development build if error handling
-   changes.
-11. Test in CSpect and, when possible, on real Spectrum Next hardware.
-
-## References
-
-- NextZXOS API documentation, normally on the Next SD card at
-  `C:/DOCS/NEXTZXOS/NextZXOS_and_esxDOS_APIs.pdf`
-- NextBASIC documentation for `SPECTRUM`
-- Standard 48K ROM routines `BC_SPACES` (`$0030`) and `RECLAIM_2` (`$19E8`)
-
-The source remains authoritative for exact implementation details; this README
-records the constraints and design decisions behind it.
