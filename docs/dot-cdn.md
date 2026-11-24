@@ -43,6 +43,60 @@ Quote an argument when it contains spaces or a colon:
 .cdn "My Games"
 ```
 
+Use either help option for a compact reminder:
+
+```text
+.cdn -h
+.cdn -?
+```
+
+The version 0.1 help text is kept within the 32-column display width:
+
+```text
+.cdn [dir-name|prefix]
+v0.1 - we.are.road
+
+Change dir & print LFN path.
+No arg: show current path.
+Prefix: show permutations
+        1-9: select, ENTER: 1st
+        any other key cancels
+```
+
+Only those exact options are reserved; a longer argument beginning with `-`
+still goes through normal directory handling.
+
+### Prefix selection
+
+An exact directory name always takes the fast path and behaves as described
+above. If the exact change fails, `.CDN` treats the argument as a
+case-insensitive prefix and looks for matching subdirectories of the current
+directory. For example:
+
+```text
+C:\>.cdn a
+1 C:\APPS
+2 C:\AUDIO
+```
+
+Press the displayed digit to select a directory. Press ENTER to select item 1,
+which makes a unique or commonly-first prefix quick to use: type its first
+letter, ENTER to submit the command, then ENTER again to accept the first
+match. Any key other than ENTER or a displayed choice cancels without changing
+directory. In either case, a blank line separates the choice list from the
+final path. Cancellation restates the unchanged current path so the result is
+always explicit.
+
+At most nine choices are displayed. If another matching directory exists, the
+list ends with:
+
+```text
+(more, truncated)
+```
+
+Choices follow the order returned by the filesystem. The prefix applies to a
+child directory's long filename; files are not offered.
+
 The root is printed with its trailing backslash, for example `C:\`. Other
 paths are printed without a trailing backslash.
 
@@ -75,9 +129,15 @@ It removes one pair of surrounding double quotes and trims trailing spaces
 from an unquoted argument. The input is limited to the NextZXOS pathname
 maximum of 255 characters plus its terminating zero.
 
-If `F_CHDIR` fails, its error is returned immediately. The current directory
-therefore remains subject to the normal atomicity and error behaviour of
-NextZXOS rather than being simulated within `.CDN`.
+Before calling `F_CHDIR`, the command checks for exact `-h`, `-H`, and `-?`
+arguments. They print a compact usage summary, version and attribution, then
+return successfully. The initial release identifies itself as
+`v0.1 - we.are.road`.
+
+If `F_CHDIR` succeeds, `.CDN` immediately prints the resulting expanded path.
+If it fails, the current directory is unchanged, allowing `.CDN` to try the
+prefix-selection fallback described below. If no child directory matches, the
+original `F_CHDIR` error is returned.
 
 ### Why `F_GETCWD` is not enough
 
@@ -123,6 +183,27 @@ The final path is still limited to 255 characters. If expansion would exceed
 that limit, the command returns `ENAMETOOLONG` rather than overflowing its
 buffer.
 
+### Building the prefix choices
+
+When the exact `F_CHDIR` call fails, `.CDN` expands the unchanged current path
+and enumerates that directory in the same `$18` long-and-short-name mode. It
+filters entries using the FAT directory attribute and compares the argument
+with the start of each LFN without ASCII case sensitivity.
+
+The first nine matching full paths are copied into fixed 256-byte slots. This
+uses more of the dot-command image, but means the selected path remains stable
+after `F_READDIR` reuses its directory-entry buffer. Discovering a tenth match
+is enough to print the truncation marker; later entries do not need to be read.
+
+The command polls the eight Spectrum keyboard half-rows directly. It first
+waits for the ENTER key that submitted the command to be released, then waits
+for a fresh press. A valid displayed digit changes to its saved full path and
+ENTER maps to the first slot. Other keys return success without making a
+filesystem change. After selection or cancellation, a blank line is printed
+and the normal expanded-current-path routine is used to display the resulting
+location. Direct matrix input avoids relying on a BASIC input channel, which
+is not valid during every dot-command invocation.
+
 ## Building
 
 From the repository root, run:
@@ -133,20 +214,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -Clean
 
 The build uses SJAsmPlus and writes the extensionless command to `dot/cdn`.
 The build script also rejects an image larger than the 8 KiB dot-command
-limit. The current binary is 1,519 bytes.
+limit. The current binary is 4,488 bytes.
 
 ## Testing status
 
-The command has been exercised under NextZXOS in CSpect. Tests confirmed
-directory changes, parent traversal, and expansion of a returned short alias
-such as `ZXNEXT~1` to its stored long name, `zxNextUnite`.
+The command has been exercised under NextZXOS in CSpect. Tests confirmed exact
+directory changes, parent traversal, expansion of a returned short alias such
+as `ZXNEXT~1` to its stored long name, `zxNextUnite`, interactive selection and
+cancellation, and truncation after nine displayed choices.
 
-Further changes should test at least:
+Regression testing should cover:
 
 - invocation with no argument;
 - a child directory specified by short and long name;
 - `..` at an ordinary level and at the root;
 - names containing spaces;
 - nonexistent directories;
+- a unique prefix selected with ENTER;
+- several prefix matches selected by digit and cancelled with another key;
+- ten or more matches and the truncation marker;
 - paths with several components requiring LFN expansion;
 - a path near the 255-character limit.

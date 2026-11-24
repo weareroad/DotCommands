@@ -28,8 +28,9 @@ The current checkout is a small, transitional project:
   each command or closely related command family. Keep this prefix convention
   when adding command documentation.
 - Each legacy `SetNN` binary is 51 bytes and has been tested under NextZXOS.
-- `.CDN` is 1519 bytes. Its directory change has been tested in CSpect; its
-  component-by-component LFN expansion still needs runtime confirmation.
+- `.CDN` is 4488 bytes. Exact changes, LFN expansion, interactive selection,
+  cancellation, and the nine-choice truncation limit have been tested in
+  CSpect.
 - `build.ps1` is the reproducible SJAsmPlus entry point for new assembly
   commands. It does not yet build the legacy `SetNN` sources.
 - `.tools/` is ignored and is suitable for a project-local toolchain.
@@ -49,8 +50,12 @@ the canonical, drive-qualified path using `F_GETCWD` (`$A8`), then expands any
 8.3 aliases by matching each component against the paired LFN/SFN entries from
 `F_OPENDIR` (`$A3`) mode `$18` and `F_READDIR` (`$A4`). Mode `$18` requires
 NextZXOS 2.07 or later. With no argument it only prints the expanded current
-path. It accepts quoted LFNs and returns native esxDOS errors. Its source is
-standard SJAsmPlus syntax.
+path. If an exact change fails, it offers up to nine child-directory LFNs that
+start with the argument; digits select, ENTER selects the first, and other keys
+cancel. After displaying choices it prints a blank line and restates the final
+path, including the unchanged path after cancellation. It accepts quoted LFNs
+and returns native esxDOS errors. Exact `-h`, `-H`, and `-?` arguments print
+brief built-in help. Its source is standard SJAsmPlus syntax.
 
 The legacy `SetNN` sources use the NextForge/ZNC `;; make dot` directive,
 assemble at `0x2000`, allocate a main-RAM buffer with the 48K ROM `BC_SPACES`

@@ -15,12 +15,18 @@ that NextZXOS reached.
 .cdn ..              move to the parent and show the resulting path
 .cdn fred            move into fred and show the resulting path
 .cdn "My Games"      use quotes for LFNs containing spaces or a colon
+.cdn a               choose from child directories beginning with "a"
+.cdn -h              show brief help (`-?` is equivalent)
 ```
 
 If the directory change fails, `.CDN` returns the original esxDOS error to
-NextZXOS and does not print a path. At the root, `.cdn ..` is expected to remain
-at the root and print it, subject to the normal `F_CHDIR` behaviour of the
-installed NextZXOS version.
+NextZXOS unless the argument is a case-insensitive prefix of one or more child
+directory LFNs. In that case it displays up to nine numbered full paths and
+waits for a digit; ENTER selects the first item and any other key cancels. A
+blank line separates the choices from the final path, which is restated even
+after cancellation. At the root, `.cdn ..` is expected to remain at the root
+and print it, subject to the normal `F_CHDIR` behaviour of the installed
+NextZXOS version.
 
 The implementation uses the NextZXOS esxDOS-compatible `F_CHDIR` (`$A9`) and
 `F_GETCWD` (`$A8`) hooks. `F_GETCWD` can return FAT 8.3 aliases, so `.CDN`
@@ -32,9 +38,9 @@ requires NextZXOS 2.07 or later.
 Arguments may end with NUL, ENTER, or an unquoted colon and are converted to
 the null-terminated form required by `F_CHDIR`.
 
-The directory-changing portion has been exercised under NextZXOS in CSpect.
-The component-by-component LFN expansion is newly built and awaits runtime
-confirmation there.
+Exact directory changes, component-by-component LFN expansion, interactive
+selection, cancellation, and the nine-choice truncation limit have been
+exercised under NextZXOS in CSpect.
 
 ## SetNN
 
@@ -70,7 +76,7 @@ NextZXOS. They were built first with ZNC, then edited into standalone `.asm`
 files and built with NextForge.
 
 `.CDN` is the first command in the repository's SJAsmPlus build path. It builds
-to a 1519-byte raw dot-command image at origin `$2000`.
+to a 4488-byte raw dot-command image at origin `$2000`.
 
 ## Installation and use
 
