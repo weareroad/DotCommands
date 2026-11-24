@@ -1,1 +1,90 @@
-;; make dot "set64";org 0x2000MAKE_BC_SPACES      equ 0x0030RECLAIM_BC_SPACES   equ 0x19e8IDE_BASIC           equ 0x01c0M_P3DOS             equ 0x94CALCSTACK_SPACE     equ 40    ; Allocate space for the tokens    ld bc, .len+CALCSTACK_SPACE    rst 0x18    dw MAKE_BC_SPACES    add de, CALCSTACK_SPACE            ; Copy the tokens to the allocated space    push de    ld hl,.toks    ld bc,.len    ldir    ; Execute the tokenized BASIC code    pop hl    exx    ld de,IDE_BASIC    ld c,0          ; Page in BANK 0    rst 0x08    db M_P3DOS    ret.toks db 0xa3, 0xc2, 0x25, "64", ":", 0xfb, 0x0d ; SPECTRUM CHR$ %64:CLS.len equ $ - .toks
+; SET64 - select the 64-column display and clear the screen.
+
+    org $2000
+MAKE_BC_SPACES      equ $0030
+IDE_BASIC           equ $01c0
+M_P3DOS             equ $94
+CALCSTACK_SPACE     equ 40
+
+start:
+    IFNDEF REFERENCE_BASELINE
+    ld a,h
+    or l
+    jr z,.set_mode
+
+.skip_leading_spaces:
+    ld a,(hl)
+    cp ' '
+    jr nz,.check_dash
+    inc hl
+    jr .skip_leading_spaces
+
+.check_dash:
+    cp '-'
+    jr nz,.set_mode
+    inc hl
+    ld a,(hl)
+    cp '?'
+    jr z,.check_help_end
+    and $df
+    cp 'H'
+    jr nz,.set_mode
+
+.check_help_end:
+    inc hl
+.skip_trailing_spaces:
+    ld a,(hl)
+    cp ' '
+    jr nz,.check_help_terminator
+    inc hl
+    jr .skip_trailing_spaces
+
+.check_help_terminator:
+    or a
+    jr z,.show_help
+    cp $0d
+    jr z,.show_help
+    cp ':'
+    jr nz,.set_mode
+
+.show_help:
+    ld hl,.help_text
+.print_help:
+    ld a,(hl)
+    or a
+    ret z
+    rst $10
+    inc hl
+    jr .print_help
+    ENDIF
+
+.set_mode:
+    ; Allocate token space above 40 bytes reserved for the calculator stack.
+    ld bc,.len+CALCSTACK_SPACE
+    rst $18
+    dw MAKE_BC_SPACES
+    add de,CALCSTACK_SPACE
+
+    ; Copy the tokens and retain their address for IDE_BASIC.
+    push de
+    ld hl,.toks
+    ld bc,.len
+    ldir
+    pop hl
+
+    ; Execute the tokenized BASIC code. IDE_BASIC reclaims the workspace.
+    exx
+    ld de,IDE_BASIC
+    ld c,0          ; Page in BANK 0
+    rst $08
+    db M_P3DOS
+    ret
+
+.toks db $a3,$c2,$25,"64",":",$fb,$0d ; SPECTRUM CHR$ %64:CLS
+.len equ $-.toks
+
+    IFNDEF REFERENCE_BASELINE
+.help_text:
+    db "v0.1 - we.are.road",$0d,$0d
+    db "set display mode to 64 chars",$0d,0
+    ENDIF

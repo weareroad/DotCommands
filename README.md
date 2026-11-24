@@ -1,8 +1,7 @@
 # ZX Spectrum Next dot commands
 
-Small utilities for NextZXOS, written in Z80/Z80N assembly or Z88DK C.
-New assembly commands use SJAsmPlus; the original `SetNN` commands remain in
-their tested NextForge/ZNC form for now.
+Small utilities for NextZXOS, written in Z80/Z80N assembly or Z88DK C. The
+assembly commands have a reproducible SJAsmPlus build from this repository.
 
 ## CDN
 
@@ -44,8 +43,8 @@ exercised under NextZXOS in CSpect.
 
 ## SetNN
 
-The legacy commands set the display mode to a particular number of characters
-and perform a `CLS`.
+These commands set the display mode to a particular number of characters and
+perform a `CLS`.
 
 ### Set32
 sets the display to the standard 32 column classic
@@ -65,6 +64,9 @@ SPECTRUM CHR$ %64 : CLS
 SPECTRUM CHR$ %85 : CLS
 ```
 
+Exact `-h`, `-H`, and `-?` arguments print the command version and a one-line
+description without changing display mode or clearing the screen.
+
 The project is also intended to become a home for additional dot commands.
 The shared source will eventually demonstrate NextZXOS ABI, memory, paging, error-handling,
 and build details that future commands are likely to need.
@@ -73,10 +75,12 @@ and build details that future commands are likely to need.
 
 All three `SetNN` commands have been built and tested successfully under
 NextZXOS. They were built first with ZNC, then edited into standalone `.asm`
-files and built with NextForge.
+files and built with NextForge. Taylor's later calculator-stack optimization
+reduced them to 37 bytes; a mechanical SJAsmPlus port was proven byte-for-byte
+identical. The current help-enabled commands are 145 bytes and retain that
+optimized mode-setting core.
 
-`.CDN` is the first command in the repository's SJAsmPlus build path. It builds
-to a 4488-byte raw dot-command image at origin `$2000`.
+`.CDN` builds to a 4488-byte raw dot-command image at origin `$2000`.
 
 ## Installation and use
 
@@ -95,7 +99,7 @@ NextZXOS/NextBASIC command line.
 
 ## Building
 
-The checked-in build script currently builds `.CDN` with SJAsmPlus 1.24.0 or a
+The checked-in script builds all four commands with SJAsmPlus 1.24.0 or a
 compatible later version:
 
 ```powershell
@@ -108,21 +112,32 @@ To remove and rebuild the generated binary:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -Clean
 ```
 
-Use `-Assembler path/to/sjasmplus` to select a particular executable and
-`-Command cdn` to build only that command. The script fails if SJAsmPlus fails
-or the resulting dot command exceeds 8192 bytes.
+Use `-Assembler path/to/sjasmplus` to select a particular executable. Use
+`-Command cdn`, `setnn`, `set32`, `set64`, or `set85` to build a subset.
+The script fails if SJAsmPlus fails or a resulting dot command exceeds 8192
+bytes.
 
-The legacy `SetNN` sources are not built by this script because their current
-NextForge/ZNC syntax is not accepted unchanged by SJAsmPlus. They can be ported
-separately after their current runtime behaviour is captured on NextZXOS.
+The `-VerifySetNNReference` guard can be used while restoring or auditing the
+optimized 37-byte baseline:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 `
+  -Command setnn -VerifySetNNReference
+```
+
+Verification defines `REFERENCE_BASELINE`, omits only the help dispatcher and
+text, assembles each optimized core to a temporary file, and checks its
+historical SHA-256 without replacing the normal release artifact. The baseline
+proof and hashes are documented in
+[`docs/dot-SetNN.md`](docs/dot-SetNN.md).
 
 ## Historical SetNN implementation notes
 
 The sections below record investigation and design work from an older, larger
-SJAsmPlus implementation of the display-mode commands. The current 51-byte
-NextForge sources do not implement every paging and error-handling step
+SJAsmPlus implementation of the display-mode commands. The current compact
+help-enabled sources do not implement every paging and error-handling step
 described below. Consult `src/set32.asm`, `src/set64.asm`, and `src/set85.asm`
-for the code that produced the current release artifacts.
+for the code that produces the current release artifacts.
 
 ## Why the commands execute NextBASIC
 
@@ -191,23 +206,19 @@ hidden integer.
 `$BFE0`. `IDE_BASIC` also requires the machine stack to remain in its normal
 BASIC region between `STKEND` and `RAMTOP`.
 
-The implementation asks the 48K BASIC ROM to allocate workspace:
+The implementation asks the 48K BASIC ROM to allocate the token bytes plus 40
+bytes reserved for the calculator stack:
 
 ```asm
-ld   bc,command_length
+ld   bc,command_length+40
 rst  $18
 defw $0030              ; BC_SPACES; returns start address in DE
+add  de,40               ; token stream follows calculator-stack space
 ```
 
-The command is copied there and its address passed to `IDE_BASIC`. Afterwards,
-the allocation is released:
-
-```asm
-ld   hl,(command_ptr)
-ld   bc,command_length
-rst  $18
-defw $19e8              ; RECLAIM_2
-```
+The command is copied there and its address passed to `IDE_BASIC`, which
+reclaims the workspace as part of executing the BASIC line. This removes the
+older explicit `RECLAIM_2` call and saved command pointer.
 
 This detail is important. An earlier implementation placed the command below
 the current stack pointer. Moving `SP` below `STKEND` violated the `M_P3DOS`

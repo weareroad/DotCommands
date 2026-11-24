@@ -9,7 +9,9 @@ display width and clear the screen:
 | `.SET64` | More compact 64-column display |
 | `.SET85` | Dense 85-column display |
 
-All three commands have been built and tested successfully under NextZXOS.
+The optimized mode-setting commands and the help behavior were tested
+separately under NextZXOS in CSpect. Their merged 145-byte build requires a
+final regression after rebasing onto the optimized upstream core.
 
 ## Using the commands
 
@@ -25,6 +27,18 @@ Next SD card. At the NextBASIC command line, enter the required command:
 Changing mode also performs a `CLS`, so the new display geometry is visible
 immediately and the screen contents are cleared.
 
+Use `-h`, `-H`, or `-?` for brief help without changing mode or clearing the
+screen. For example, `.set32 -h` prints:
+
+```text
+v0.1 - we.are.road
+
+set display mode to 32 chars
+```
+
+The final line uses `64` or `85` for the other commands. Only those exact
+options are treated as help; other arguments preserve the historical behavior.
+
 ## Current implementation
 
 The three sources are:
@@ -33,9 +47,11 @@ The three sources are:
 - [`src/set64.asm`](../src/set64.asm)
 - [`src/set85.asm`](../src/set85.asm)
 
-They are small NextForge/ZNC sources which differ only in the requested column
-count. Each binary is 51 bytes and executes the equivalent of one tokenised
-NextBASIC statement:
+They are small SJAsmPlus sources, ported mechanically from the tested
+NextForge/ZNC versions, which differ only in the requested column count. The
+optimized mechanical ports were 37 bytes. The current 145-byte binaries add
+exact help option recognition and text before that optimized mode-setting
+path, which executes the equivalent of one tokenised NextBASIC statement:
 
 ```basic
 SPECTRUM CHR$ %32 : CLS
@@ -73,20 +89,15 @@ its command text in ordinary Spectrum RAM, so each SetNN command asks the 48K
 BASIC ROM to allocate a workspace:
 
 ```asm
-ld   bc,.len
+ld   bc,.len+40
 rst  $18
 dw   $0030          ; BC_SPACES
+add  de,40           ; reserve calculator-stack space below the tokens
 ```
 
-The token stream is copied into that allocation with `LDIR`. After the BASIC
-command has executed, the workspace is released:
-
-```asm
-ld   hl,(.addr_s)
-ld   bc,.len
-rst  $18
-dw   $19E8          ; RECLAIM_2
-```
+The token stream is copied into that allocation with `LDIR`. `IDE_BASIC`
+reclaims the workspace while executing the line, so the optimized commands do
+not save an allocation pointer or call `RECLAIM_2` explicitly.
 
 Using BASIC workspace also keeps the machine stack in the range expected by
 the ROM and NextZXOS APIs. Earlier experiments which moved the stack below
@@ -107,11 +118,10 @@ are supplied through the alternate register set. SetNN therefore places the
 allocated command address in `HL'` and requests RAM bank 0:
 
 ```asm
+pop  hl                   ; allocated token address
+exx                        ; token address becomes HL'
 ld   de,IDE_BASIC
 ld   c,0
-exx
-ld   hl,(.addr_s)
-exx
 rst  $08
 db   M_P3DOS
 ```
@@ -127,7 +137,7 @@ contract also requires no `$DFFD` paging, the normal lower half of RAM bank 5
 in MMU2, pointer parameters in ordinary RAM, and the stack between `STKEND`
 and `RAMTOP` for this call.
 
-The present 51-byte commands rely on the normal NextZXOS command-line
+The present compact commands rely on the normal NextZXOS command-line
 environment to provide those conditions. They do not contain the explicit
 paging save-and-restore logic explored in an older, larger implementation.
 That distinction matters if the commands are later invoked from a different
@@ -137,7 +147,7 @@ environment or refactored to do more work.
 
 The current compact sources do not inspect the result of `BC_SPACES` or
 `IDE_BASIC`, nor do they translate an error into the dot-command return
-convention. They reclaim the workspace and return.
+convention. `IDE_BASIC` reclaims the workspace and the commands return.
 
 Earlier investigation found that the tested NextZXOS system returned carry
 clear from the `M_P3DOS` call even when `IDE_BASIC` had executed successfully,
@@ -152,11 +162,43 @@ for `IDE_BASIC` on every NextZXOS version.
 ## Building and history
 
 The commands were originally built with ZNC and later edited into standalone
-assembly files and built with NextForge on the Spectrum Next. Their
-`;; make dot` directive and source syntax are not accepted unchanged by the
-repository's SJAsmPlus 1.24.0 build path.
+assembly files and built with NextForge on the Spectrum Next. The repository
+sources have now been adjusted to standard SJAsmPlus syntax: hexadecimal
+literals use `$`, the `org` directive is indented so it is not parsed as a
+label, the NextForge `;; make dot` directive has become an ordinary source
+comment, and SJAsmPlus is run with `--zxnext` for the Z80N `ADD DE,nn`
+instruction. These are source-level changes only and do not alter emitted
+bytes.
 
-For that reason, `build.ps1` currently builds `.CDN` only. Porting SetNN to
-SJAsmPlus should be treated as a separate change: preserve the tested 51-byte
-behaviour, establish reproducible raw binaries at origin `$2000`, and compare
-the new artifacts under NextZXOS before replacing the existing commands.
+Build all commands from the repository root with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -Clean
+```
+
+Build just the SetNN family with `-Command setnn`, or select one with
+`-Command set32`, `set64`, or `set85`. Outputs retain their historical names:
+`dot/set32`, `dot/set64`, and `dot/set85`.
+
+### Byte-for-byte baseline verification
+
+Run the protected comparison build with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 `
+  -Command setnn -VerifySetNNReference
+```
+
+This protected mode defines `REFERENCE_BASELINE`, omitting only the help
+dispatcher and strings. Each optimized core is assembled to a temporary file
+and checked without replacing the normal help-enabled artifact. SJAsmPlus
+1.24.0 reproduces all three optimized NextForge/ZNC binaries exactly:
+
+| Command | Bytes | Reference SHA-256 |
+| --- | ---: | --- |
+| `.SET32` | 37 | `917c7975781993682ab896eb6c70624a15aba786a7965a94abceeb5790424445` |
+| `.SET64` | 37 | `a877272fa3e64f88e7d5551f20433aa06e2978c7e4f2b0db47dd0ad6f3a81078` |
+| `.SET85` | 37 | `ae948fbeb8048a2ae708fc949993e480ac62cb120214ddd5829829badc3aa57a` |
+
+This keeps the SJAsmPlus port continuously checked against its byte-identical
+37-byte baseline while allowing the normal help-enabled build to evolve.
