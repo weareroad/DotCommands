@@ -1,7 +1,45 @@
 # ZX Spectrum Next dot commands
 
+Small utilities for NextZXOS, written in Z80/Z80N assembly or Z88DK C.
+New assembly commands use SJAsmPlus; the original `SetNN` commands remain in
+their tested NextForge/ZNC form for now.
+
+## CDN
+
+`.CDN` means "change directory and name". It changes the current directory and
+then prints the drive-qualified, canonical long-filename path of the directory
+that NextZXOS reached.
+
+```text
+.cdn                 show the current directory without changing it
+.cdn ..              move to the parent and show the resulting path
+.cdn fred            move into fred and show the resulting path
+.cdn "My Games"      use quotes for LFNs containing spaces or a colon
+```
+
+If the directory change fails, `.CDN` returns the original esxDOS error to
+NextZXOS and does not print a path. At the root, `.cdn ..` is expected to remain
+at the root and print it, subject to the normal `F_CHDIR` behaviour of the
+installed NextZXOS version.
+
+The implementation uses the NextZXOS esxDOS-compatible `F_CHDIR` (`$A9`) and
+`F_GETCWD` (`$A8`) hooks. `F_GETCWD` can return FAT 8.3 aliases, so `.CDN`
+walks the resulting path component by component. For each parent directory it
+uses `F_OPENDIR` (`$A3`) mode `$18` and `F_READDIR` (`$A4`) to match the short
+name with the paired LFN, preserving the spelling stored on disk. Mode `$18`
+requires NextZXOS 2.07 or later.
+
+Arguments may end with NUL, ENTER, or an unquoted colon and are converted to
+the null-terminated form required by `F_CHDIR`.
+
+The directory-changing portion has been exercised under NextZXOS in CSpect.
+The component-by-component LFN expansion is newly built and awaits runtime
+confirmation there.
+
 ## SetNN
-sets the display mode to a particular number of characters and performs a CLS
+
+The legacy commands set the display mode to a particular number of characters
+and perform a `CLS`.
 
 ### Set32
 sets the display to the standard 32 column classic
@@ -13,12 +51,12 @@ sets the display to a more usable 64 column mode
 sets the display to a slightly more taxing 85 column mode
 
 
-The commands are shorthand for these working NextBASIC statements:
+The current sources execute tokenised forms of these NextBASIC statements:
 
 ```basic
-SPECTRUM CHR$ 32 : CLS  
-SPECTRUM CHR$ 64 : CLS  
-SPECTRUM CHR$ 85 : CLS  
+SPECTRUM CHR$ %32 : CLS
+SPECTRUM CHR$ %64 : CLS
+SPECTRUM CHR$ %85 : CLS
 ```
 
 The project is also intended to become a home for additional dot commands.
@@ -27,21 +65,58 @@ and build details that future commands are likely to need.
 
 ## Status
 
-All three commands have been built and tested successfully under NextZXOS.
-They've been built first with ZNC, and then later edited into simple .asm files and built with NextForge.
+All three `SetNN` commands have been built and tested successfully under
+NextZXOS. They were built first with ZNC, then edited into standalone `.asm`
+files and built with NextForge.
+
+`.CDN` is the first command in the repository's SJAsmPlus build path. It builds
+to a 1519-byte raw dot-command image at origin `$2000`.
 
 ## Installation and use
 
-Copy the extensionless files in 'dot' to the dot-command directory on the Next SD card:
+Copy the required extensionless files from `dot/` to the dot-command directory
+on the Next SD card:
 
 ```text
 C:/DOT/Set32
 C:/DOT/Set64
 C:/DOT/Set85
+C:/DOT/cdn
 ```
 
-Then enter `.SET32`, `.SET64`, or `.SET85` at the NextZXOS/NextBASIC command line. The
-numeric filenames are accepted by NextZXOS, so longer names are unnecessary.
+Then enter `.SET32`, `.SET64`, `.SET85`, or `.CDN` at the
+NextZXOS/NextBASIC command line.
+
+## Building
+
+The checked-in build script currently builds `.CDN` with SJAsmPlus 1.24.0 or a
+compatible later version:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
+```
+
+To remove and rebuild the generated binary:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -Clean
+```
+
+Use `-Assembler path/to/sjasmplus` to select a particular executable and
+`-Command cdn` to build only that command. The script fails if SJAsmPlus fails
+or the resulting dot command exceeds 8192 bytes.
+
+The legacy `SetNN` sources are not built by this script because their current
+NextForge/ZNC syntax is not accepted unchanged by SJAsmPlus. They can be ported
+separately after their current runtime behaviour is captured on NextZXOS.
+
+## Historical SetNN implementation notes
+
+The sections below record investigation and design work from an older, larger
+SJAsmPlus implementation of the display-mode commands. The current 51-byte
+NextForge sources do not implement every paging and error-handling step
+described below. Consult `src/set32.asm`, `src/set64.asm`, and `src/set85.asm`
+for the code that produced the current release artifacts.
 
 ## Why the commands execute NextBASIC
 
