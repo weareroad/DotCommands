@@ -1,7 +1,8 @@
 # ZX Spectrum Next dot commands
 
 Small utilities for NextZXOS, written in Z80/Z80N assembly or Z88DK C. The
-assembly commands have a reproducible SJAsmPlus build from this repository.
+assembly commands have a reproducible SJAsmPlus build from this repository;
+the derived `.LSN` command is built as a z88dk dotN image.
 
 ## CDN
 
@@ -40,6 +41,40 @@ the null-terminated form required by `F_CHDIR`.
 Exact directory changes, component-by-component LFN expansion, interactive
 selection, cancellation, and the nine-choice truncation limit have been
 exercised under NextZXOS in CSpect.
+
+## LSN
+
+`.LSN` is an opinionated build of the Spectrum Next distribution's `.ls`
+command. With no additional options it behaves as if these options followed
+the command name:
+
+```text
+-A -1 --lfn=on --gdf --time-style=long-iso -d --system
+```
+
+The original idea was a small alias command that launched `.ls` with this
+fixed argument string, similar in spirit to the SetNN commands executing
+NextBASIC. NextZXOS does not permit its execute-dot-command hook to be called
+from another dot command, and both commands would occupy the same DivMMC image
+at `$2000`. `.LSN` is therefore a minimally modified build of the real `.ls`
+source rather than a wrapper.
+
+This produces an almost-all, single-column, long-filename listing with
+directories grouped first and long-ISO formatting whenever timestamps are
+displayed. System entries are included and directory operands are listed
+rather than entered. File operands and explicit options are still accepted and
+are parsed after the defaults.
+
+`.LSN` runs at 28 MHz. It records the entry speed, changes speed only when
+necessary, and restores the recorded value on every normal return or `exit`
+path.
+
+The command is a 24 KiB z88dk dotN image rather than a conventional 8 KiB dot
+command. Its derived source, upstream provenance, local modifications, and
+separate licence are recorded under [`src/lsn`](src/lsn/UPSTREAM.md). Detailed
+usage and implementation notes are in [`docs/dot-lsn.md`](docs/dot-lsn.md).
+The generated command was installed into the project CSpect SD image and its
+default listing behaviour was successfully tested under NextZXOS in CSpect.
 
 ## SetNN
 
@@ -82,6 +117,11 @@ optimized mode-setting core.
 
 `.CDN` builds to a 4488-byte raw dot-command image at origin `$2000`.
 
+`.LSN` builds to a 24576-byte dotN image. The first page is the dot-command
+loader; z88dk appends the allocated pages used by the full directory lister.
+Repeated builds were byte-identical, and the default `.lsn` invocation has
+been exercised successfully under NextZXOS in CSpect.
+
 ## Installation and use
 
 Copy the required extensionless files from `dot/` to the dot-command directory
@@ -92,15 +132,17 @@ C:/DOT/Set32
 C:/DOT/Set64
 C:/DOT/Set85
 C:/DOT/cdn
+C:/DOT/lsn
 ```
 
-Then enter `.SET32`, `.SET64`, `.SET85`, or `.CDN` at the
+Then enter `.SET32`, `.SET64`, `.SET85`, `.CDN`, or `.LSN` at the
 NextZXOS/NextBASIC command line.
 
 ## Building
 
-The checked-in script builds all four commands with SJAsmPlus 1.24.0 or a
-compatible later version:
+The checked-in script builds the assembly commands with SJAsmPlus 1.24.0 or a
+compatible later version and `.LSN` with z88dk. The tested z88dk frontend is
+v26602-687c8e22e9 (2026-10-24):
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
@@ -112,10 +154,18 @@ To remove and rebuild the generated binary:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -Clean
 ```
 
-Use `-Assembler path/to/sjasmplus` to select a particular executable. Use
-`-Command cdn`, `setnn`, `set32`, `set64`, or `set85` to build a subset.
-The script fails if SJAsmPlus fails or a resulting dot command exceeds 8192
-bytes.
+Use `-Assembler path/to/sjasmplus` to select a particular assembler. Pass
+`-Z88dkRoot path/to/z88dk` when `zcc` and `z88dk-zx7` are not on `PATH`. Use
+`-Command cdn`, `lsn`, `setnn`, `set32`, `set64`, or `set85` to build a
+subset. The script enforces the 8192-byte limit for conventional dot commands;
+the z88dk-generated dotN image is deliberately larger.
+
+To build only `.LSN`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 `
+  -Command lsn -Z88dkRoot C:/path/to/z88dk
+```
 
 The `-VerifySetNNReference` guard can be used while restoring or auditing the
 optimized 37-byte baseline:
@@ -130,6 +180,13 @@ text, assembles each optimized core to a temporary file, and checks its
 historical SHA-256 without replacing the normal release artifact. The baseline
 proof and hashes are documented in
 [`docs/dot-SetNN.md`](docs/dot-SetNN.md).
+
+## Licensing
+
+Original repository code is dedicated under CC0-1.0. The source under
+`src/lsn/` is derived from z88dk/Spectrum Next distribution code and remains
+under the Clarified Artistic License included in that directory. `dot/lsn` is
+the corresponding derived binary and is not presented as CC0.
 
 ## Historical SetNN implementation notes
 

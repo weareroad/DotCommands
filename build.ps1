@@ -1,8 +1,10 @@
 param(
-    [ValidateSet("all", "cdn", "setnn", "set32", "set64", "set85")]
+    [ValidateSet("all", "cdn", "lsn", "setnn", "set32", "set64", "set85")]
     [string] $Command = "all",
 
     [string] $Assembler = "sjasmplus",
+
+    [string] $Z88dkRoot = "",
 
     [switch] $Clean,
 
@@ -16,6 +18,12 @@ $commands = @(
         Name = "cdn"
         Source = "src/cdn.asm"
         Output = "dot/cdn"
+        ReferenceSha256 = $null
+    },
+    [pscustomobject]@{
+        Name = "lsn"
+        Source = "src/lsn"
+        Output = "dot/lsn"
         ReferenceSha256 = $null
     },
     [pscustomobject]@{
@@ -56,13 +64,107 @@ function Get-Sha256([string] $Path) {
     return ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
 }
 
+function Find-Z88dkTool([string] $Name) {
+    if ($Z88dkRoot) {
+        $candidate = Join-Path (Join-Path $Z88dkRoot "bin") "$Name.exe"
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            throw "Cannot find $Name at $candidate"
+        }
+        return $candidate
+    }
+
+    $commandInfo = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $commandInfo) {
+        throw "Cannot find $Name on PATH; pass -Z88dkRoot with the z88dk installation directory"
+    }
+    return $commandInfo.Source
+}
+
+function Build-Lsn($Definition) {
+    $sourceDirectory = Join-Path $PSScriptRoot $Definition.Source
+    $output = Join-Path $PSScriptRoot $Definition.Output
+    $stageDirectory = Join-Path $PSScriptRoot ".tools/build/lsn"
+    $stageParent = Split-Path -Parent $stageDirectory
+
+    $zcc = Find-Z88dkTool "zcc"
+    $zx7 = Find-Z88dkTool "z88dk-zx7"
+
+    Remove-Item -LiteralPath $output -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $stageDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $stageDirectory -Force | Out-Null
+
+    try {
+        Copy-Item -Path (Join-Path $sourceDirectory "*") -Destination $stageDirectory -Recurse
+
+        Push-Location $stageDirectory
+        try {
+            & $zx7 -f "ls-help.txt"
+            if ($LASTEXITCODE -ne 0) {
+                throw "z88dk-zx7 failed for lsn with exit code $LASTEXITCODE"
+            }
+
+            $compilerArguments = @(
+                "+zxn",
+                "-startup=30",
+                "-clib=sdcc_iy",
+                "-SO3",
+                "--max-allocs-per-node200000",
+                "--opt-code-size",
+                "@zproject.lst",
+                "-o", "lsn",
+                "-pragma-include:zpragma.inc",
+                "-subtype=dotn",
+                '-Cz"--clean"',
+                "-create-app"
+            )
+
+            & $zcc @compilerArguments
+            if ($LASTEXITCODE -ne 0) {
+                throw "zcc failed for lsn with exit code $LASTEXITCODE"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+
+        $builtImage = Join-Path $stageDirectory "LSN"
+        if (-not (Test-Path -LiteralPath $builtImage -PathType Leaf)) {
+            throw "zcc did not produce the expected LSN dotN image"
+        }
+
+        $outputDirectory = Split-Path -Parent $output
+        New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $builtImage -Destination $output
+
+        $size = (Get-Item -LiteralPath $output).Length
+        if ($size -eq 0) {
+            Remove-Item -LiteralPath $output -ErrorAction SilentlyContinue
+            throw "$($Definition.Output) is empty"
+        }
+
+        Write-Host "Built $($Definition.Output) ($size bytes, dotN)"
+    }
+    finally {
+        Remove-Item -LiteralPath $stageDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath $stageParent -PathType Container) -and
+            -not (Get-ChildItem -LiteralPath $stageParent -Force)) {
+            Remove-Item -LiteralPath $stageParent -Force
+        }
+    }
+}
+
 $selectedCommands = switch ($Command) {
     "all"   { $commands }
-    "setnn" { $commands | Where-Object Name -ne "cdn" }
+    "setnn" { $commands | Where-Object { $null -ne $_.ReferenceSha256 } }
     default { $commands | Where-Object Name -eq $Command }
 }
 
 foreach ($definition in $selectedCommands) {
+    if ($definition.Name -eq "lsn") {
+        Build-Lsn $definition
+        continue
+    }
+
     $source = (Join-Path $PSScriptRoot $definition.Source).Replace("\", "/")
     $output = (Join-Path $PSScriptRoot $definition.Output).Replace("\", "/")
     $verifyReference = $VerifySetNNReference -and $null -ne $definition.ReferenceSha256
